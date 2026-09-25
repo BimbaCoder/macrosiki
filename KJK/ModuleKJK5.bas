@@ -3,17 +3,40 @@ Option Explicit
 
 '==================================================================
 ' modNestedGroups - множественные атрибуты со сводной ячейкой.
-' Две настоящие вложенности ("лесенка"):
-'   KJKEMD_032 -> KJKEMD_176  (Учредитель -> Учредитель учредителя)
-'   KJKEMD_087 -> KJKEMD_112  (Договор -> Реструктуризация)
-' Остальные (036, 044, 127, 050) - плоские группы верхнего уровня,
-' без вложенности (проверено по листу "КЖК" - все их дочерние поля
-' помечены "Простой", вложенных МНОЖЕСТВЕННЫЙ внутри них нет).
 '
-' Логика та же, что и раньше для 032:
-'   - на главном листе одна ячейка-сводка на группу, код группы
-'     прописан в строке MULTI_ATTR_CODE_ROW (7)
-'   - двойной клик по ней открывает лист группы
+' ОБЩИЙ МОДУЛЬ НА ВЕСЬ ПРОЕКТ: файл одинаковый во всех книгах
+' (КЖК, ДАМУ, Лизинг), отличается только строкой Attribute VB_Name.
+' Внутри - белые списки групп всех систем; нужный выбирается по
+' MAIN_SHEET_NAME из Module3 (см. SystemCode). Правки логики и
+' белых списков делать ЗДЕСЬ и копировать файл во все книги.
+' АКК СХ и ЭКА пока на своих (старых) Module5 - в этот модуль
+' не переведены.
+'
+' Белый список группы = GroupCode + поля Headers/ValueCols.
+' Правило построения (по файлу Spravochka в корне проекта):
+'   - в список полей группы попадают ЛИСТЬЯ поддерева, т.е. коды,
+'     у которых в Spravochka нет своих дочерних (пометка
+'     "Составной" в реестре тут не важна - например LsgEMD_108,
+'     LsgEMD_133/134, LsgEMD_137-140 составные, но полей под
+'     ними нет, значит это обычные поля);
+'   - промежуточные узлы с дочерними (KJKEMD_054, KJKEMD_096 ...)
+'     в столбцы не попадают - только их листья;
+'   - вложенный МНОЖЕСТВЕННЫЙ атрибут (KJKEMD_176, KJKEMD_112,
+'     DamuEMD_108, LsgEMD_158, LsgEMD_111) - отдельная группа
+'     со своим листом, у родителя под него сводный столбец
+'     ChildSummaryCol, а его листья в родителя НЕ входят.
+'
+' Вложенности ("лесенка"):
+'   КЖК:    KJKEMD_032 -> KJKEMD_176,  KJKEMD_087 -> KJKEMD_112
+'   ДАМУ:   DamuEMD_138 -> DamuEMD_108
+'   Лизинг: LsgEMD_031 -> LsgEMD_158,  LsgEMD_086 -> LsgEMD_111
+'
+' Логика:
+'   - на главном листе одна ячейка-сводка на группу (ParentCol);
+'     двойной клик по ней открывает лист группы. Группа узнается
+'     по коду в строке MULTI_ATTR_CODE_ROW ИЛИ по самому столбцу
+'     ParentCol (у Лизинга 131/135/141/147 в этих столбцах стоит
+'     код первого поля, а не код группы)
 '   - если у группы есть вложенная - внутри ее листа есть своя
 '     сводная ячейка (ChildSummaryCol), открывающая лист вложенной
 '     группы, отфильтрованный по конкретной родительской строке
@@ -22,7 +45,6 @@ Option Explicit
 '     "Заполнен N атрибутами"
 '==================================================================
 
-Private Const GROUP_COUNT As Long = 8
 Private Const HEADER_ROW As Long = 4
 Private Const FIRST_DATA_ROW As Long = 5
 Private Const DICT_CODE_ROW_CHILD As Long = 3
@@ -53,9 +75,48 @@ Private CurrentSourceRow As Long
 Private CurrentParentSheetName As String
 
 '------------------------------------------------------------------
-' НАСТРОЙКА ГРУПП
+' ВЫБОР СИСТЕМЫ (по главному листу книги)
 '------------------------------------------------------------------
+Private Function SystemCode() As String
+
+    Select Case MAIN_SHEET_NAME
+        Case "КЖК_ЭФ":    SystemCode = "KJK"
+        Case "ДАМУ ЭФ":   SystemCode = "DAM"
+        Case "ЭФ_Лизинг": SystemCode = "LSG"
+        Case Else:        SystemCode = vbNullString
+    End Select
+
+End Function
+
+Private Function GroupCount() As Long
+
+    Select Case SystemCode()
+        Case "KJK": GroupCount = 8
+        Case "DAM": GroupCount = 11
+        Case "LSG": GroupCount = 11
+        Case Else:  GroupCount = 0
+    End Select
+
+End Function
+
 Private Sub LoadGroupCfg(ByVal Index As Long, ByRef Cfg As TGroup)
+
+    Dim Blank As TGroup
+
+    Cfg = Blank
+
+    Select Case SystemCode()
+        Case "KJK": LoadGroupCfg_KJK Index, Cfg
+        Case "DAM": LoadGroupCfg_DAM Index, Cfg
+        Case "LSG": LoadGroupCfg_LSG Index, Cfg
+    End Select
+
+End Sub
+
+'------------------------------------------------------------------
+' БЕЛЫЙ СПИСОК: КЖК
+'------------------------------------------------------------------
+Private Sub LoadGroupCfg_KJK(ByVal Index As Long, ByRef Cfg As TGroup)
 
     Select Case Index
 
@@ -281,6 +342,645 @@ Private Sub LoadGroupCfg(ByVal Index As Long, ByRef Cfg As TGroup)
 End Sub
 
 '------------------------------------------------------------------
+' БЕЛЫЙ СПИСОК: ДАМУ
+'------------------------------------------------------------------
+Private Sub LoadGroupCfg_DAM(ByVal Index As Long, ByRef Cfg As TGroup)
+
+    Select Case Index
+
+        Case 1      ' DamuEMD_029 - Планируемый объем инвестиций в проект (в случае валютного финансирования), валюта
+            Cfg.GroupCode = "DamuEMD_029"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "Z"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "DamuEMD_029"
+            Cfg.TitleText = "DamuEMD_029 — Планируемый объем инвестиций в проект (в случае валютного финансирования), валюта"
+            Cfg.LastCol = "C"
+            Cfg.ValueCols = "B,C"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "D"
+            Cfg.Headers = Array("DamuEMD_004 — ID проекта", _
+                    "DamuEMD_030 — сумма", _
+                    "DamuEMD_031 — валюта (SPR017)")
+            Cfg.Widths = Array(20, 16, 16)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "", _
+                    "SPR017")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 2      ' DamuEMD_035 - Источник фондирования Холдинга
+            Cfg.GroupCode = "DamuEMD_035"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "AC"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "DamuEMD_035"
+            Cfg.TitleText = "DamuEMD_035 — Источник фондирования Холдинга"
+            Cfg.LastCol = "R"
+            Cfg.ValueCols = "B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "S"
+            Cfg.Headers = Array("DamuEMD_004 — ID проекта", _
+                    "DamuEMD_036 — Источник средств, (выбрать из списка один или несколько) (SPR015)", _
+                    "DamuEMD_037 — Сумма по источнику средств", _
+                    "DamuEMD_038 — Способ привлечения фондирования, (выбрать из списка) (SPR011)", _
+                    "DamuEMD_040 — Наименование ФЭО", _
+                    "DamuEMD_041 — № бюджетной программы", _
+                    "DamuEMD_042 — Дата Приказа ГО", _
+                    "DamuEMD_043 — № Приказа ГО", _
+                    "DamuEMD_044 — Наименование ЦГО (список) (SPR046)", _
+                    "DamuEMD_046 — Признак участия в гос. Программах (SPR047)", _
+                    "DamuEMD_047 — Полное наименование программы", _
+                    "DamuEMD_048 — Наменование НПА, которым утвержден документ", _
+                    "DamuEMD_049 — Дата", _
+                    "DamuEMD_050 — №", _
+                    "DamuEMD_051 — Тип ставки привлечения (SPR029)", _
+                    "DamuEMD_052 — Ставка привлечения, % (при фиксированной)", _
+                    "DamuEMD_054 — Индекс", _
+                    "DamuEMD_055 — Спред")
+            Cfg.Widths = Array(20, 39, 20, 37, 16, 17, 16, 16, 24, 28, 21, 28, 16, 16, 22, 27, 16, 16)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", "SPR015", "", "SPR011", "", "", "", "", "SPR046", _
+                                   "SPR047", "", "", "", "", "SPR029", "", "", "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 3      ' DamuEMD_138 - Договор
+            Cfg.GroupCode = "DamuEMD_138"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "AV"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "DamuEMD_138"
+            Cfg.TitleText = "DamuEMD_138 — Договор"
+            Cfg.LastCol = "S"
+            Cfg.ValueCols = "B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R"
+            Cfg.KeyCol = "T"
+            Cfg.CtxCol = "U"
+            Cfg.Headers = Array("DamuEMD_004 — ID проекта", _
+                    "DamuEMD_139 — Номер СОКЛ/договора/догова банковской гарантии", _
+                    "DamuEMD_082 — Дата СОКЛ/договора/догова банковской гарантии", _
+                    "DamuEMD_094 — Дата ввода информации по задолженности", _
+                    "DamuEMD_096 — по основному долгу, тенге", _
+                    "DamuEMD_097 — по вознаграждению, тенге", _
+                    "DamuEMD_099 — по основному долгу, тенге", _
+                    "DamuEMD_100 — по вознаграждению, тенге", _
+                    "DamuEMD_101 — Дисконт (-), премия (+), отрицательная (-), положительная (+) корректировка стоимости займа", _
+                    "DamuEMD_102 — Пеня, штрафы, тенге", _
+                    "DamuEMD_103 — Количество дней просрочки", _
+                    "DamuEMD_104 — Стадия (МСФО 9)", _
+                    "DamuEMD_105 — Провизии, %", _
+                    "DamuEMD_106 — Категория учета (SPR031)", _
+                    "DamuEMD_107 — Провизии, тенге", _
+                    "DamuEMD_072 — Дата заключения договора займа", _
+                    "DamuEMD_073 — Дата окончания срока действия договора займа согласно графику погашения", _
+                    "DamuEMD_074 — дни (дата окончания минус дата заключения)", _
+                    "DamuEMD_108 — Реструктуризация (список)")
+            Cfg.Widths = Array(20, 30, 29, 26, 19, 19, 19, 19, 40, 16, 19, 16, 16, 19, 16, 22, 40, 28, 26)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "SPR031", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "")
+            Cfg.ChildGroupCode = "DamuEMD_108"
+            Cfg.ChildSummaryCol = "S"
+
+        Case 4      ' DamuEMD_108 - Реструктуризация (вложена в DamuEMD_138)
+            Cfg.GroupCode = "DamuEMD_108"
+            Cfg.ParentSheetName = "DamuEMD_138"
+            Cfg.ParentCol = "S"
+            Cfg.ParentKeyCol = "T"
+            Cfg.SheetName = "DamuEMD_108"
+            Cfg.TitleText = "DamuEMD_108 — Реструктуризация"
+            Cfg.LastCol = "F"
+            Cfg.ValueCols = "B,C,D,E,F"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "G"
+            Cfg.Headers = Array("Ключ (служебное)", _
+                    "DamuEMD_109 — Дата реструктуризации", _
+                    "DamuEMD_110 — Основные условия по реструктуризации", _
+                    "DamuEMD_111 — Краткое описание решений Уполномоченного органа ДО/ДЗО/поручения Правительства или ГО относительно проблемных вопросов (при наличии)", _
+                    "DamuEMD_112 — Дальнейший План мероприятий/предложения/видение ДО/ДЗО по оздоровлению проекта (прикрепить соответствующий документ)", _
+                    "DamuEMD_140 — Документ дальнейшего Плана мероприятий/предложения/видение ДО/ДЗО по оздоровлению проекта")
+            Cfg.Widths = Array(20, 17, 25, 40, 40, 40)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 5      ' DamuEMD_088 - Освоение средств по годам
+            Cfg.GroupCode = "DamuEMD_088"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "BA"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "DamuEMD_088"
+            Cfg.TitleText = "DamuEMD_088 — Освоение средств по годам"
+            Cfg.LastCol = "D"
+            Cfg.ValueCols = "B,C,D"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "E"
+            Cfg.Headers = Array("DamuEMD_004 — ID проекта", _
+                    "DamuEMD_089 — Год (ГГГГ)", _
+                    "DamuEMD_090 — План", _
+                    "DamuEMD_091 — Факт")
+            Cfg.Widths = Array(20, 16, 16, 16)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "", _
+                    "", _
+                    "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 6      ' DamuEMD_114 - Выручка согласно Плану развития ДО/ДЗО, тенге
+            Cfg.GroupCode = "DamuEMD_114"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "BB"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "DamuEMD_114"
+            Cfg.TitleText = "DamuEMD_114 — Выручка согласно Плану развития ДО/ДЗО, тенге"
+            Cfg.LastCol = "F"
+            Cfg.ValueCols = "B,C,D,E,F"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "G"
+            Cfg.Headers = Array("DamuEMD_004 — ID проекта", _
+                    "DamuEMD_149 — Год отчетного периода", _
+                    "DamuEMD_115 — план (отчетный период)", _
+                    "DamuEMD_116 — факт", _
+                    "DamuEMD_150 — план (кумулятивно за все года)", _
+                    "DamuEMD_117 — факт (кумулятивно за все года)")
+            Cfg.Widths = Array(20, 17, 18, 16, 22, 22)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 7      ' DamuEMD_119 - Текущее количество рабочих мест, занятых на предприятии, ед.
+            Cfg.GroupCode = "DamuEMD_119"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "BC"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "DamuEMD_119"
+            Cfg.TitleText = "DamuEMD_119 — Текущее количество рабочих мест, занятых на предприятии, ед."
+            Cfg.LastCol = "D"
+            Cfg.ValueCols = "B,C,D"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "E"
+            Cfg.Headers = Array("DamuEMD_004 — ID проекта", _
+                    "DamuEMD_141 — Год отчетного периода", _
+                    "DamuEMD_120 — план", _
+                    "DamuEMD_121 — факт")
+            Cfg.Widths = Array(20, 17, 16, 16)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "", _
+                    "", _
+                    "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 8      ' DamuEMD_122 - Количество созданных рабочих мест, ед.
+            Cfg.GroupCode = "DamuEMD_122"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "BD"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "DamuEMD_122"
+            Cfg.TitleText = "DamuEMD_122 — Количество созданных рабочих мест, ед."
+            Cfg.LastCol = "F"
+            Cfg.ValueCols = "B,C,D,E,F"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "G"
+            Cfg.Headers = Array("DamuEMD_004 — ID проекта", _
+                    "DamuEMD_142 — Год отчетного периода", _
+                    "DamuEMD_151 — план", _
+                    "DamuEMD_123 — факт", _
+                    "DamuEMD_152 — План (кумулятивно за все года)", _
+                    "DamuEMD_124 — факт (кумулятивно за все года)")
+            Cfg.Widths = Array(20, 17, 16, 16, 22, 22)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 9      ' DamuEMD_125 - Фонд оплаты труда, тенге
+            Cfg.GroupCode = "DamuEMD_125"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "BE"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "DamuEMD_125"
+            Cfg.TitleText = "DamuEMD_125 — Фонд оплаты труда, тенге"
+            Cfg.LastCol = "F"
+            Cfg.ValueCols = "B,C,D,E,F"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "G"
+            Cfg.Headers = Array("DamuEMD_004 — ID проекта", _
+                    "DamuEMD_143 — Год отчетного периода", _
+                    "DamuEMD_153 — план", _
+                    "DamuEMD_126 — факт", _
+                    "DamuEMD_154 — План (кумулятивно за все года)", _
+                    "DamuEMD_144 — факт (кумулятивно за все года)")
+            Cfg.Widths = Array(20, 17, 16, 16, 22, 22)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 10      ' DamuEMD_127 - Уплаченные налоги и другие обязательные платежи в бюджет, тенге
+            Cfg.GroupCode = "DamuEMD_127"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "BF"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "DamuEMD_127"
+            Cfg.TitleText = "DamuEMD_127 — Уплаченные налоги и другие обязательные платежи в бюджет, тенге"
+            Cfg.LastCol = "F"
+            Cfg.ValueCols = "B,C,D,E,F"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "G"
+            Cfg.Headers = Array("DamuEMD_004 — ID проекта", _
+                    "DamuEMD_145 — Год отчетного периода", _
+                    "DamuEMD_155 — План", _
+                    "DamuEMD_128 — факт", _
+                    "DamuEMD_156 — план (кумулятивно за все года)", _
+                    "DamuEMD_129 — факт (кумулятивно за все года)")
+            Cfg.Widths = Array(20, 17, 16, 16, 22, 22)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 11      ' DamuEMD_130 - Встречные обязательства
+            Cfg.GroupCode = "DamuEMD_130"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "BG"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "DamuEMD_130"
+            Cfg.TitleText = "DamuEMD_130 — Встречные обязательства"
+            Cfg.LastCol = "F"
+            Cfg.ValueCols = "B,C,D,E,F"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "G"
+            Cfg.Headers = Array("DamuEMD_004 — ID проекта", _
+                    "DamuEMD_146 — Год отчетного периода", _
+                    "DamuEMD_131 — план", _
+                    "DamuEMD_132 — факт", _
+                    "DamuEMD_147 — план (кумулятивно за все года)", _
+                    "DamuEMD_148 — факт (кумулятивно за все года)")
+            Cfg.Widths = Array(20, 17, 16, 16, 22, 22)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "", _
+                    "", _
+                    "", _
+                    "", _
+                    "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+    End Select
+
+End Sub
+
+'------------------------------------------------------------------
+' БЕЛЫЙ СПИСОК: Лизинг
+' (LsgEMD_018 и LsgEMD_049 на главном листе разложены отдельными
+' столбцами S:W и AL:BB - остаются одинарными, групп под них нет)
+'------------------------------------------------------------------
+Private Sub LoadGroupCfg_LSG(ByVal Index As Long, ByRef Cfg As TGroup)
+
+    Select Case Index
+
+        Case 1      ' LsgEMD_031 - Учредитель заемщика (вложена 158)
+            Cfg.GroupCode = "LsgEMD_031"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "AD"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "LsgEMD_031"
+            Cfg.TitleText = "LsgEMD_031 — Учредитель заемщика"
+            Cfg.LastCol = "F"
+            Cfg.ValueCols = "B,C,D,E"
+            Cfg.KeyCol = "G"
+            Cfg.CtxCol = "H"
+            Cfg.Headers = Array("LsgEMD_003 — ID проекта", _
+                    "LsgEMD_157 — Правовой тип лица (SPR053)", _
+                    "LsgEMD_032 — Физ.лицо, которому принадлежит более 1% долей участия в уставном капитале или размещенных акций предприятия завителя проекта (полное ФИО)", _
+                    "LsgEMD_033 — Страна (указать страну по каждому учредителю отдельно) (SPR039)", _
+                    "LsgEMD_034 — Доля, %", _
+                    "LsgEMD_158 — Физ.лицо - Учредитель учредителя заемщика (список)")
+            Cfg.Widths = Array(20, 19, 40, 38, 16, 26)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "SPR053", _
+                    "", _
+                    "SPR039", _
+                    "", _
+                    "")
+            Cfg.ChildGroupCode = "LsgEMD_158"
+            Cfg.ChildSummaryCol = "F"
+
+        Case 2      ' LsgEMD_158 - Физ.лицо - Учредитель учредителя заемщика (вложена в LsgEMD_031)
+            Cfg.GroupCode = "LsgEMD_158"
+            Cfg.ParentSheetName = "LsgEMD_031"
+            Cfg.ParentCol = "F"
+            Cfg.ParentKeyCol = "G"
+            Cfg.SheetName = "LsgEMD_158"
+            Cfg.TitleText = "LsgEMD_158 — Физ.лицо - Учредитель учредителя заемщика"
+            Cfg.LastCol = "D"
+            Cfg.ValueCols = "B,C,D"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "E"
+            Cfg.Headers = Array("Ключ (служебное)", _
+                    "LsgEMD_159 — Физ.лицо, которому принадлежит более 1% долей участия в уставном капитале или размещенных акций предприятия завителя проекта (полное ФИО", _
+                    "LsgEMD_160 — Страна (указать страну по каждому учредителю отдельно) (SPR039)", _
+                    "LsgEMD_161 — Доля, %")
+            Cfg.Widths = Array(20, 40, 38, 16)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "", _
+                    "SPR039", _
+                    "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 3      ' LsgEMD_035 - Наименование иностранных инвесторов, ТНК, участвующих в проекте
+            Cfg.GroupCode = "LsgEMD_035"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "AE"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "LsgEMD_035"
+            Cfg.TitleText = "LsgEMD_035 — Наименование иностранных инвесторов, ТНК, участвующих в проекте"
+            Cfg.LastCol = "C"
+            Cfg.ValueCols = "B,C"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "D"
+            Cfg.Headers = Array("LsgEMD_003 — ID проекта", _
+                    "LsgEMD_036 — Наименование", _
+                    "LsgEMD_037 — Страна (SPR039)")
+            Cfg.Widths = Array(20, 16, 16)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "", _
+                    "SPR039")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 4      ' LsgEMD_043 - Планируемый объем финансирования (в случае валютного финансирования), валюта
+            Cfg.GroupCode = "LsgEMD_043"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "AI"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "LsgEMD_043"
+            Cfg.TitleText = "LsgEMD_043 — Планируемый объем финансирования (в случае валютного финансирования), валюта"
+            Cfg.LastCol = "C"
+            Cfg.ValueCols = "B,C"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "D"
+            Cfg.Headers = Array("LsgEMD_003 — ID проекта", _
+                    "LsgEMD_044 — Сумма", _
+                    "LsgEMD_045 — валюта (SPR017)")
+            Cfg.Widths = Array(20, 16, 16)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", _
+                    "", _
+                    "SPR017")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 5      ' LsgEMD_086 - Договор (вложена 111)
+            Cfg.GroupCode = "LsgEMD_086"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "BU"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "LsgEMD_086"
+            Cfg.TitleText = "LsgEMD_086 — Договор"
+            Cfg.LastCol = "S"
+            Cfg.ValueCols = "B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R"
+            Cfg.KeyCol = "T"
+            Cfg.CtxCol = "U"
+            Cfg.Headers = Array("LsgEMD_003 — ID проекта", _
+                    "LsgEMD_093 — Номер СОКЛ/договора/догова банковской гарантии", _
+                    "LsgEMD_094 — Дата СОКЛ/договора/догова банковской гарантии", _
+                    "LsgEMD_097 — Дата ввода информации по задолженности", _
+                    "LsgEMD_099 — по основному долгу, тенге", _
+                    "LsgEMD_100 — по вознаграждению, тенге", _
+                    "LsgEMD_102 — по основному долгу, тенге", _
+                    "LsgEMD_103 — по вознаграждению, тенге", _
+                    "LsgEMD_104 — Дисконт (-), премия (+), отрицательная (-), положительная (+) корректировка стоимости займа", _
+                    "LsgEMD_105 — Пеня, штрафы, тенге", _
+                    "LsgEMD_106 — Количество дней просрочки", _
+                    "LsgEMD_107 — Стадия (МСФО 9)", _
+                    "LsgEMD_108 — Провизии, %", _
+                    "LsgEMD_109 — Категория учета (амортизированная/справедливая) (SPR031)", _
+                    "LsgEMD_110 — Провизии, тенге", _
+                    "LsgEMD_117 — Дата заключения договора лизинга", _
+                    "LsgEMD_118 — Дата окончания срока действия договора лизинга согласно графику погашения", _
+                    "LsgEMD_119 — дни (дата окончания минус дата заключения)", _
+                    "LsgEMD_111 — Реструктуризация (список)")
+            Cfg.Widths = Array(20, 29, 29, 25, 19, 18, 19, 18, 40, 16, 19, 16, 14, 34, 16, 22, 40, 27, 26)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", "", "", "", "", "", "", "", "", "", "", "", "", _
+                                   "SPR031", "", "", "", "", "")
+            Cfg.ChildGroupCode = "LsgEMD_111"
+            Cfg.ChildSummaryCol = "S"
+
+        Case 6      ' LsgEMD_111 - Реструктуризация (вложена в LsgEMD_086)
+            Cfg.GroupCode = "LsgEMD_111"
+            Cfg.ParentSheetName = "LsgEMD_086"
+            Cfg.ParentCol = "S"
+            Cfg.ParentKeyCol = "T"
+            Cfg.SheetName = "LsgEMD_111"
+            Cfg.TitleText = "LsgEMD_111 — Реструктуризация"
+            Cfg.LastCol = "F"
+            Cfg.ValueCols = "B,C,D,E,F"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "G"
+            Cfg.Headers = Array("Ключ (служебное)", _
+                    "LsgEMD_112 — Дата реструктуризации", _
+                    "LsgEMD_113 — Основные условия по реструктуризации", _
+                    "LsgEMD_114 — Краткое описание решений Уполномоченного органа ДО/ДЗО/поручения Правительства или ГО относительно проблемных вопросов (при наличии)", _
+                    "LsgEMD_115 — Дальнейший План мероприятий/предложения/видение ДО/ДЗО по оздоровлению проекта (прикрепить соответствующий документ)", _
+                    "LsgEMD_156 — Документ дальнейшего Плана мероприятий/предложения/видение ДО/ДЗО по оздоровлению проекта")
+            Cfg.Widths = Array(20, 17, 24, 40, 40, 40)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", "", "", "", "", "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 7      ' LsgEMD_125 - Освоение средств по годам
+            Cfg.GroupCode = "LsgEMD_125"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "BZ"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "LsgEMD_125"
+            Cfg.TitleText = "LsgEMD_125 — Освоение средств по годам"
+            Cfg.LastCol = "D"
+            Cfg.ValueCols = "B,C,D"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "E"
+            Cfg.Headers = Array("LsgEMD_003 — ID проекта", _
+                    "LsgEMD_126 — Год (ГГГГ)", _
+                    "LsgEMD_127 — План", _
+                    "LsgEMD_128 — Факт")
+            Cfg.Widths = Array(20, 16, 16, 16)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", "", "", "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 8      ' LsgEMD_131 - Текущее количество рабочих мест (сводка в столбце CA, там код LsgEMD_132)
+            Cfg.GroupCode = "LsgEMD_131"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "CA"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "LsgEMD_131"
+            Cfg.TitleText = "LsgEMD_131 — Текущее количество рабочих мест, занятых на предприятии, ед."
+            Cfg.LastCol = "D"
+            Cfg.ValueCols = "B,C,D"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "E"
+            Cfg.Headers = Array("LsgEMD_003 — ID проекта", _
+                    "LsgEMD_132 — Год отчетного периода", _
+                    "LsgEMD_133 — план", _
+                    "LsgEMD_134 — факт")
+            Cfg.Widths = Array(20, 17, 16, 16)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", "", "", "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 9      ' LsgEMD_135 - Количество созданных рабочих мест (сводка в столбце CB, там код LsgEMD_136)
+            Cfg.GroupCode = "LsgEMD_135"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "CB"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "LsgEMD_135"
+            Cfg.TitleText = "LsgEMD_135 — Количество созданных рабочих мест, ед."
+            Cfg.LastCol = "F"
+            Cfg.ValueCols = "B,C,D,E,F"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "G"
+            Cfg.Headers = Array("LsgEMD_003 — ID проекта", _
+                    "LsgEMD_136 — Год отчетного периода", _
+                    "LsgEMD_137 — план", _
+                    "LsgEMD_138 — факт", _
+                    "LsgEMD_139 — план (кумулятивно за все года)", _
+                    "LsgEMD_140 — факт (кумулятивно за все года)")
+            Cfg.Widths = Array(20, 17, 16, 16, 21, 21)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", "", "", "", "", "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 10     ' LsgEMD_141 - Уплаченные налоги (сводка в столбце CC, там код LsgEMD_142)
+            Cfg.GroupCode = "LsgEMD_141"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "CC"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "LsgEMD_141"
+            Cfg.TitleText = "LsgEMD_141 — Уплаченные налоги и другие обязательные платежи в бюджет, тенге"
+            Cfg.LastCol = "F"
+            Cfg.ValueCols = "B,C,D,E,F"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "G"
+            Cfg.Headers = Array("LsgEMD_003 — ID проекта", _
+                    "LsgEMD_142 — Год отчетного периода", _
+                    "LsgEMD_143 — план", _
+                    "LsgEMD_144 — факт", _
+                    "LsgEMD_145 — план (кумулятивно за все года)", _
+                    "LsgEMD_146 — факт (кумулятивно за все года)")
+            Cfg.Widths = Array(20, 17, 16, 16, 21, 21)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", "", "", "", "", "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+        Case 11     ' LsgEMD_147 - Встречные обязательства (сводка в столбце CD, там код LsgEMD_148)
+            Cfg.GroupCode = "LsgEMD_147"
+            Cfg.ParentSheetName = vbNullString
+            Cfg.ParentCol = "CD"
+            Cfg.ParentKeyCol = vbNullString
+            Cfg.SheetName = "LsgEMD_147"
+            Cfg.TitleText = "LsgEMD_147 — Встречные обязательства"
+            Cfg.LastCol = "D"
+            Cfg.ValueCols = "B,C,D"
+            Cfg.KeyCol = vbNullString
+            Cfg.CtxCol = "E"
+            Cfg.Headers = Array("LsgEMD_003 — ID проекта", _
+                    "LsgEMD_148 — Год отчетного периода", _
+                    "LsgEMD_149 — план", _
+                    "LsgEMD_150 — факт")
+            Cfg.Widths = Array(20, 17, 16, 16)
+            Cfg.IntCols = ""
+            Cfg.MoneyCols = ""
+            Cfg.DictCodes = Array("", "", "", "")
+            Cfg.ChildGroupCode = vbNullString
+            Cfg.ChildSummaryCol = vbNullString
+
+    End Select
+
+End Sub
+
+'------------------------------------------------------------------
 ' Маршрутизация (вызывается из modRouter)
 '------------------------------------------------------------------
 Public Function IsGroupSheet(ByVal SheetName As String) As Boolean
@@ -288,7 +988,7 @@ Public Function IsGroupSheet(ByVal SheetName As String) As Boolean
     Dim i As Long
     Dim Cfg As TGroup
 
-    For i = 1 To GROUP_COUNT
+    For i = 1 To GroupCount()
         LoadGroupCfg i, Cfg
         If StrComp(Cfg.SheetName, SheetName, vbTextCompare) = 0 Then
             IsGroupSheet = True
@@ -303,7 +1003,7 @@ Public Function Group_HandleClick(ByVal Sh As Worksheet, ByVal Target As Range) 
     Dim i As Long
     Dim Cfg As TGroup
 
-    For i = 1 To GROUP_COUNT
+    For i = 1 To GroupCount()
 
         LoadGroupCfg i, Cfg
 
@@ -339,16 +1039,20 @@ Public Function Group_OpenFromMain(ByVal ws As Worksheet, ByVal Target As Range)
     If Target.Row < FIRST_INPUT_ROW Then Exit Function
 
     Code = Trim$(CStr(ws.Cells(MULTI_ATTR_CODE_ROW, Target.Column).Value2))
-    If Len(Code) = 0 Then Exit Function
 
-    For i = 1 To GROUP_COUNT
+    ' Группа узнается по столбцу-сводке ParentCol или по коду группы
+    ' в строке кодов (регистр не важен: на листе Лизинга "LSGEMD_031")
+    For i = 1 To GroupCount()
 
         LoadGroupCfg i, Cfg
 
-        If Len(Cfg.ParentSheetName) = 0 And StrComp(Cfg.GroupCode, Code, vbTextCompare) = 0 Then
-            Group_OpenFromMain = True
-            OpenGroup Cfg, ws, Target
-            Exit Function
+        If Len(Cfg.ParentSheetName) = 0 Then
+            If Target.Column = ws.Range(Cfg.ParentCol & "1").Column Or _
+               StrComp(Cfg.GroupCode, Code, vbTextCompare) = 0 Then
+                Group_OpenFromMain = True
+                OpenGroup Cfg, ws, Target
+                Exit Function
+            End If
         End If
 
     Next i
@@ -362,7 +1066,7 @@ Public Function Group_OpenFromParent(ByVal ws As Worksheet, ByVal Target As Rang
 
     If Target.Row < FIRST_DATA_ROW Then Exit Function
 
-    For i = 1 To GROUP_COUNT
+    For i = 1 To GroupCount()
 
         LoadGroupCfg i, Cfg
 
@@ -395,7 +1099,7 @@ Private Sub OpenGroup(ByRef Cfg As TGroup, ByVal wsSource As Worksheet, ByVal Ta
         CurrentProjectID = Trim$(CStr(wsSource.Cells(Target.Row, PROJECT_ID_COL).Value2))
 
         If CurrentProjectID = vbNullString Then
-            MsgBox "Сначала заполните KJKEMD_003 — ID проекта в столбце " & _
+            MsgBox "Сначала заполните ID проекта в столбце " & _
                    PROJECT_ID_COL & ".", vbExclamation
             Exit Sub
         End If
@@ -687,7 +1391,7 @@ Public Sub NestedGroup_HandleChange(ByVal ws As Worksheet, ByVal Target As Range
     Dim i As Long
     Dim Cfg As TGroup
 
-    For i = 1 To GROUP_COUNT
+    For i = 1 To GroupCount()
 
         LoadGroupCfg i, Cfg
 
@@ -794,7 +1498,7 @@ Private Sub ClearChildGroupRecords(ByRef Cfg As TGroup, ByVal ChildKeyValue As S
     If Len(Cfg.ChildGroupCode) = 0 Then Exit Sub
     If Len(Trim$(ChildKeyValue)) = 0 Then Exit Sub
 
-    For i = 1 To GROUP_COUNT
+    For i = 1 To GroupCount()
 
         LoadGroupCfg i, ChildCfg
 
@@ -972,7 +1676,7 @@ Public Sub ReapplyGroupProtection()
     Dim Cfg As TGroup
     Dim ws As Worksheet
 
-    For i = 1 To GROUP_COUNT
+    For i = 1 To GroupCount()
 
         LoadGroupCfg i, Cfg
 
