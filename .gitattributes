@@ -1,0 +1,11 @@
+# VBA-модули: редактор VBA (File -> Import/Export) работает только
+# с Windows-1251 и CRLF. В репозитории храним UTF-8 (читается на GitHub),
+# на диске у каждого git сам перекодирует в CP1251 + CRLF.
+*.bas text eol=crlf working-tree-encoding=CP1251
+*.cls text eol=crlf working-tree-encoding=CP1251
+*.frm text eol=crlf working-tree-encoding=CP1251
+
+# Книги Excel - бинарные, не сливать и не показывать diff
+*.xlsm binary
+*.xlsx binary
+*.frx  binary
